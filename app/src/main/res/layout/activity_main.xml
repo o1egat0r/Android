@@ -10,16 +10,16 @@
 
     <TextView
         android:id="@+id/textView"
-        android:layout_width="0dp"
-        android:layout_height="100dp"
-        android:text="0"
-        android:textSize="32sp"
+        android:layout_width="412dp"
+        android:layout_height="180dp"
+        android:background="#EEEEEE"
         android:gravity="end"
         android:padding="16dp"
-        android:background="#EEEEEE"
-        app:layout_constraintTop_toTopOf="parent"
+        android:text="0"
+        android:textSize="32sp"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        app:layout_constraintTop_toTopOf="parent" />
 
     <Button
         android:id="@+id/button_backspace"

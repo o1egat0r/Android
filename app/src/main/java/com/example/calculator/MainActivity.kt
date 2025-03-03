@@ -57,22 +57,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun eval(expr: String): Double {
         return try {
-            val parts = expr.split(" ", limit = 3)
+            val parts = expr.split('+', '-', '*', '/')
 
             val a = parts[0].toDouble()
-            val oper = parts[1]
-            val b = parts[2].toDouble()
+            val b = parts[1].toDouble()
+            val oper = expr.first { it in "+-*/" }
 
             when (oper) {
-                "+" -> a + b
-                "-" -> a - b
-                "*" -> a * b
-                "/" -> a / b
+                '+' -> a + b
+                '-' -> a - b
+                '*' -> a * b
+                '/' -> a / b
                 else -> 0.0
             }
         } catch (e: Exception) {
             0.0
         }
     }
+
+
 
 }
