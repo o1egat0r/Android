@@ -3,112 +3,166 @@ package com.example.crazyapp
 import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.os.Bundle
-import android.os.Environment
 import android.widget.TextView
-import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.google.android.gms.location.*
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import org.zeromq.ZMQ
+import android.widget.Button
+
 
 class GpsActivity : AppCompatActivity() {
 
-    private lateinit var locationManager: LocationManager
-    private lateinit var gpsTextView: TextView
-    private val gpsFile by lazy {
-        File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "gps_data.json") //указываем путь в загрузки телефона
+    private lateinit var VivodGPS: TextView
+    private lateinit var locationClient: FusedLocationProviderClient
+    private lateinit var locationCallback: LocationCallback
+
+    private val ZMQ_SERVER_ADDRESS = "tcp://192.168.1.16:5555"
+    private var zmqContext: ZMQ.Context? = null
+    private var zmqSocket: ZMQ.Socket? = null
+
+    private fun startZmqClient() {
+        Thread {
+            try {
+                zmqContext = ZMQ.context(1)
+
+                zmqSocket = zmqContext?.socket(ZMQ.PUSH)
+
+                zmqSocket?.connect(ZMQ_SERVER_ADDRESS)
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
+    }
+
+    private fun sendLocationZmq(location: Location) {
+        val json = JSONObject()
+        json.put("latitude", location.latitude)
+        json.put("longitude", location.longitude)
+        json.put("timestamp", System.currentTimeMillis())
+        json.put("device_id", "android-client-1")
+
+        val message = json.toString()
+
+        Thread {
+            try {
+                if (zmqSocket != null) {
+
+                    val success = zmqSocket!!.send(message.toByteArray(ZMQ.CHARSET), 0)
+
+                    if (success) {
+                        println("ZMQ: Сообщение отправлено")
+                    } else {
+                        println("ZMQ: Ошибка отправки сообщения (send вернул false).")
+                    }
+                } else {
+                    println("ZMQ сокет не инициализирован (null).")
+                }
+            } catch (e: Exception) {
+                println("ZMQ: Критическая ошибка при отправке")
+            }
+        }.start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContentView(R.layout.activity_gps)
 
-        gpsTextView = findViewById(R.id.gps_text_view)
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
+        }
 
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-            == PackageManager.PERMISSION_GRANTED) {
-            startGps()
+        VivodGPS = findViewById(R.id.gps)
+        locationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        startZmqClient()
+
+        findViewById<Button>(R.id.button_back).setOnClickListener {
+            finish() // безопасно закрываем активность
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1)
         } else {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                1
-            )
+            startLocationUpdates()
         }
     }
 
-    private fun startGps() {
-        locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
-
-        try {
-            locationManager.requestLocationUpdates(
-                LocationManager.NETWORK_PROVIDER,
-                5000,
-                10f,
-                locationListener
-            )
-
-            val lastLocation = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            lastLocation?.let {
-                updateLocation(it)
-            }
-        } catch (e: SecurityException) {
-            gpsTextView.text = "Ошибка доступа к GPS"
-        }
-    }
-
-    private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            updateLocation(location)
-        }
-    }
-
-    private fun updateLocation(location: Location) {
-        val lat = location.latitude
-        val lng = location.longitude
-        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(location.time))
-
-        gpsTextView.text = """
-            Широта: $lat
-            Долгота: $lng
-            Время: $time
-        """.trimIndent()
-
-        saveLocation(lat, lng, time)
-    }
-
-    private fun saveLocation(lat: Double, lng: Double, time: String) {
-        try {
-            val jsonObject = JSONObject().apply {
-                put("latitude", lat)
-                put("longitude", lng)
-                put("time", time)
-            }
-
-            gpsFile.writeText(jsonObject.toString())
-            Toast.makeText(this, "Данные сохранены", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Ошибка сохранения", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 1 && grantResults.isNotEmpty() &&
-            grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            startGps()
-        } else {
-            gpsTextView.text = "Нужно разрешение для работы GPS"
+        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startLocationUpdates()
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            locationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) {
+                    val timeString = SimpleDateFormat("dd.MM.yyyy HH:mm:ss").format(Date(location.time))
+                    VivodGPS.text = "Широта: ${location.latitude}, Долгота: ${location.longitude}, Время: $timeString"
+                } else {
+                    VivodGPS.text = "Доступ к координатам закрыт"
+                }
+            }
+        }
+    }
+
+    private fun startLocationUpdates() {
+        val locationRequest = LocationRequest.create().apply {
+            interval = 5000
+            priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+        }
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                for (location in result.locations) {
+                    val timeString = SimpleDateFormat("dd.MM.yyyy HH:mm:ss").format(Date(location.time))
+                    VivodGPS.text = "Широта: ${location.latitude}, Долгота: ${location.longitude}, Время: $timeString"
+                    saveLocationToJson(location)
+                    sendLocationZmq(location)
+                }
+            }
+        }
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            locationClient.requestLocationUpdates(locationRequest, locationCallback, mainLooper)
+        }
+    }
+
+    private fun saveLocationToJson(location: Location) {
+        val json = JSONObject()
+        json.put("latitude", location.latitude)
+        json.put("longitude", location.longitude)
+        json.put("timestamp", System.currentTimeMillis())
+
+        val file = File(filesDir, "locations.json")
+        file.appendText(json.toString() + "\n")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        locationClient.removeLocationUpdates(locationCallback)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        zmqSocket?.close()
+        zmqContext?.term()
+    }
+
 }

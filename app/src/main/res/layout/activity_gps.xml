@@ -1,17 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:gravity="center"
-    android:padding="16dp">
+    android:padding="16dp"
+    android:gravity="center_horizontal">
 
     <TextView
-        android:id="@+id/gps_text_view"
+        android:id="@+id/gps"
+        android:layout_width="277dp"
+        android:layout_height="218dp"
+        android:padding="16dp"
+        android:text="Ожидание координат..."
+        android:textAlignment="center"
+        android:textSize="18sp" />
+
+    <Button
+        android:id="@+id/button_back"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Ожидание GPS..."
-        android:textSize="18sp"/>
+        android:text="Назад"
+        android:onClick="finish" />
 
 </LinearLayout>
