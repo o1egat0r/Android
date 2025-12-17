@@ -17,27 +17,28 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import org.zeromq.ZMQ
 import android.widget.Button
-
+import android.content.Context
+import android.telephony.CellInfoLte
+import android.telephony.TelephonyManager
 
 class GpsActivity : AppCompatActivity() {
 
     private lateinit var VivodGPS: TextView
     private lateinit var locationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
-
-    private val ZMQ_SERVER_ADDRESS = "tcp://192.168.1.16:5555"
+    private val ZMQ_SERVER_ADDRESS = "tcp://192.168.88.159:5555"
     private var zmqContext: ZMQ.Context? = null
     private var zmqSocket: ZMQ.Socket? = null
+    private lateinit var telephonyManager: TelephonyManager
+    private var rsrpValue: Double? = null
+    private var rsrqValue: Double? = null
 
     private fun startZmqClient() {
         Thread {
             try {
                 zmqContext = ZMQ.context(1)
-
                 zmqSocket = zmqContext?.socket(ZMQ.PUSH)
-
                 zmqSocket?.connect(ZMQ_SERVER_ADDRESS)
-
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -50,23 +51,17 @@ class GpsActivity : AppCompatActivity() {
         json.put("longitude", location.longitude)
         json.put("timestamp", System.currentTimeMillis())
         json.put("device_id", "android-client-1")
-
+        json.put("rsrp", rsrpValue)
+        json.put("rsrq", rsrqValue)
         val message = json.toString()
 
         Thread {
             try {
-                if (zmqSocket != null) {
-
-                    val success = zmqSocket!!.send(message.toByteArray(ZMQ.CHARSET), 0)
-
-                    if (success) {
-                        println("ZMQ: Сообщение отправлено")
-                    } else {
-                        println("ZMQ: Ошибка отправки сообщения (send вернул false).")
-                    }
-                } else {
-                    println("ZMQ сокет не инициализирован (null).")
-                }
+                zmqSocket?.let {
+                    val success = it.send(message.toByteArray(ZMQ.CHARSET), 0)
+                    if (success) println("ZMQ: Сообщение отправлено")
+                    else println("ZMQ: Ошибка отправки сообщения (send вернул false).")
+                } ?: println("ZMQ сокет не инициализирован (null).")
             } catch (e: Exception) {
                 println("ZMQ: Критическая ошибка при отправке")
             }
@@ -86,11 +81,12 @@ class GpsActivity : AppCompatActivity() {
 
         VivodGPS = findViewById(R.id.gps)
         locationClient = LocationServices.getFusedLocationProviderClient(this)
+        telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
 
         startZmqClient()
 
         findViewById<Button>(R.id.button_back).setOnClickListener {
-            finish() // безопасно закрываем активность
+            finish()
         }
 
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -109,13 +105,12 @@ class GpsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             locationClient.lastLocation.addOnSuccessListener { location ->
-                if (location != null) {
-                    val timeString = SimpleDateFormat("dd.MM.yyyy HH:mm:ss").format(Date(location.time))
-                    VivodGPS.text = "Широта: ${location.latitude}, Долгота: ${location.longitude}, Время: $timeString"
-                } else {
+                location?.let {
+                    val timeString = SimpleDateFormat("dd.MM.yyyy HH:mm:ss").format(Date(it.time))
+                    VivodGPS.text = "Широта: ${it.latitude}, Долгота: ${it.longitude}, Время: $timeString"
+                } ?: run {
                     VivodGPS.text = "Доступ к координатам закрыт"
                 }
             }
@@ -133,6 +128,7 @@ class GpsActivity : AppCompatActivity() {
                 for (location in result.locations) {
                     val timeString = SimpleDateFormat("dd.MM.yyyy HH:mm:ss").format(Date(location.time))
                     VivodGPS.text = "Широта: ${location.latitude}, Долгота: ${location.longitude}, Время: $timeString"
+                    updateSignalStrength()
                     saveLocationToJson(location)
                     sendLocationZmq(location)
                 }
@@ -144,11 +140,30 @@ class GpsActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateSignalStrength() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_PHONE_STATE), 2)
+            return
+        }
+
+        val cellInfoList = telephonyManager.allCellInfo
+        for (cellInfo in cellInfoList) {
+            if (cellInfo is CellInfoLte) {
+                val signal = cellInfo.cellSignalStrength
+                rsrpValue = signal.rsrp.toDouble()
+                rsrqValue = signal.rsrq.toDouble()
+                break
+            }
+        }
+    }
+
     private fun saveLocationToJson(location: Location) {
         val json = JSONObject()
         json.put("latitude", location.latitude)
         json.put("longitude", location.longitude)
         json.put("timestamp", System.currentTimeMillis())
+        json.put("rsrp", rsrpValue)
+        json.put("rsrq", rsrqValue)
 
         val file = File(filesDir, "locations.json")
         file.appendText(json.toString() + "\n")
